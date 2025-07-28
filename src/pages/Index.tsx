@@ -27,7 +27,11 @@ const Index = () => {
         originalContent: content
       });
       
-      toast.success(`Document loaded with ${changes.length} changes detected`);
+      if (changes.length > 0) {
+        toast.success(`Document loaded with ${changes.length} changes detected`);
+      } else {
+        toast.warning('Document uploaded but no track changes detected. Make sure the document has track changes enabled.');
+      }
     } catch (error) {
       toast.error('Failed to process document: ' + (error as Error).message);
     } finally {

@@ -85,7 +85,8 @@ export const RedlinePanel = ({
             <div className="text-center py-8 text-muted-foreground">
               <Edit3 className="h-12 w-12 mx-auto mb-4 opacity-50" />
               <p>No changes detected</p>
-              <p className="text-sm">Upload a document with track changes to get started</p>
+              <p className="text-sm">The document may not contain track changes or they couldn't be parsed</p>
+              <p className="text-xs mt-2">Try uploading a different .docx file with track changes enabled</p>
             </div>
           ) : (
             changes.map((change) => (

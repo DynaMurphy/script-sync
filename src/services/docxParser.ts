@@ -72,21 +72,118 @@ export class DocxParser {
       }
 
     } catch (error) {
-      console.warn('Could not extract track changes from document:', error);
-      // Return empty array instead of mock data for real usage
+      console.error('Could not extract track changes from document:', error);
+      // Try alternative parsing method if available
+      try {
+        const textContent = await this.getTextContent(file);
+        const alternativeChanges = this.parseAlternativeTrackChanges(textContent);
+        if (alternativeChanges.length > 0) {
+          return alternativeChanges;
+        }
+      } catch (altError) {
+        console.warn('Alternative parsing also failed:', altError);
+      }
+      
+      // Return empty array - let the UI handle the no changes case
       return [];
     }
 
     return changes;
   }
 
-  private static parseXMLPromise(xml: string): Promise<any> {
+  private static parseXMLPromise = (xml: string): Promise<any> => {
     return new Promise((resolve, reject) => {
-      this.parseXML(xml, (err: any, result: any) => {
-        if (err) reject(err);
-        else resolve(result);
-      });
+      try {
+        // Create parser with browser-compatible options
+        const parser = new xml2js.Parser({ 
+          explicitArray: false,
+          ignoreAttrs: false,
+          mergeAttrs: true,
+          normalize: true,
+          normalizeTags: true,
+          explicitRoot: false
+        });
+        
+        parser.parseString(xml, (err: any, result: any) => {
+          if (err) {
+            console.error('XML parsing error:', err);
+            reject(err);
+          } else {
+            resolve(result);
+          }
+        });
+      } catch (error) {
+        console.error('Parser creation error:', error);
+        reject(error);
+      }
     });
+  };
+
+  // Helper method to get text content from file
+  private static async getTextContent(file: File): Promise<string> {
+    try {
+      const { value: htmlContent } = await mammoth.convertToHtml({ arrayBuffer: await file.arrayBuffer() });
+      return htmlContent.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+    } catch (error) {
+      console.warn('Could not extract text content:', error);
+      return '';
+    }
+  }
+
+  // Alternative parsing method for when xml2js fails
+  private static parseAlternativeTrackChanges(content: string): RedlineChange[] {
+    const changes: RedlineChange[] = [];
+    
+    // Look for common track change patterns in the text
+    const addedPattern = /\[Added: (.+?)\]/g;
+    const deletedPattern = /\[Deleted: (.+?)\]/g;
+    const modifiedPattern = /\[Modified: (.+?) -> (.+?)\]/g;
+    
+    let match;
+    let index = 0;
+    
+    // Find added text
+    while ((match = addedPattern.exec(content)) !== null) {
+      changes.push({
+        id: `alt-added-${index++}`,
+        type: 'added',
+        text: match[1],
+        author: 'Document Author',
+        timestamp: new Date(),
+        location: { start: match.index, end: match.index + match[0].length },
+        comment: 'Added content detected'
+      });
+    }
+    
+    // Find deleted text
+    while ((match = deletedPattern.exec(content)) !== null) {
+      changes.push({
+        id: `alt-deleted-${index++}`,
+        type: 'deleted',
+        text: '',
+        originalText: match[1],
+        author: 'Document Author',
+        timestamp: new Date(),
+        location: { start: match.index, end: match.index + match[0].length },
+        comment: 'Deleted content detected'
+      });
+    }
+    
+    // Find modified text
+    while ((match = modifiedPattern.exec(content)) !== null) {
+      changes.push({
+        id: `alt-modified-${index++}`,
+        type: 'modified',
+        text: match[2],
+        originalText: match[1],
+        author: 'Document Author',
+        timestamp: new Date(),
+        location: { start: match.index, end: match.index + match[0].length },
+        comment: 'Modified content detected'
+      });
+    }
+    
+    return changes;
   }
 
   private static extractChangesFromXML(xmlObj: any, changes: RedlineChange[]) {
