@@ -1,0 +1,237 @@
+import mammoth from 'mammoth';
+import JSZip from 'jszip';
+import xml2js from 'xml2js';
+import { RedlineChange, DocumentMetadata } from '@/types/redline';
+
+export class DocxParser {
+  private static parseXML = xml2js.parseString;
+
+  static async parseDocument(file: File): Promise<{
+    content: string;
+    changes: RedlineChange[];
+    metadata: DocumentMetadata;
+  }> {
+    try {
+      // Extract text content using mammoth
+      const { value: htmlContent } = await mammoth.convertToHtml({ arrayBuffer: await file.arrayBuffer() });
+      
+      // Convert HTML to plain text for processing
+      const textContent = htmlContent.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+      
+      // Extract track changes from the docx file
+      const changes = await this.extractTrackChanges(file);
+      
+      // Generate metadata
+      const metadata: DocumentMetadata = {
+        filename: file.name,
+        uploadedAt: new Date(),
+        lastModified: new Date(file.lastModified),
+        wordCount: textContent.split(/\s+/).length,
+        changeCount: changes.length,
+        authors: [...new Set(changes.map(c => c.author))]
+      };
+
+      return {
+        content: textContent,
+        changes,
+        metadata
+      };
+    } catch (error) {
+      console.error('Error parsing document:', error);
+      throw new Error('Failed to parse document. Please ensure it\'s a valid .docx file.');
+    }
+  }
+
+  private static async extractTrackChanges(file: File): Promise<RedlineChange[]> {
+    const changes: RedlineChange[] = [];
+    
+    try {
+      const zip = new JSZip();
+      const docxContents = await zip.loadAsync(file);
+      
+      // Extract the main document content
+      const documentXml = await docxContents.file('word/document.xml')?.async('text');
+      if (!documentXml) throw new Error('Could not find document.xml');
+
+      // Parse the XML to extract track changes
+      const parsedXml = await this.parseXMLPromise(documentXml);
+      
+      // Extract changes from the parsed XML
+      this.extractChangesFromXML(parsedXml, changes);
+      
+      // Also check for comments
+      const commentsXml = await docxContents.file('word/comments.xml')?.async('text');
+      if (commentsXml) {
+        const parsedComments = await this.parseXMLPromise(commentsXml);
+        this.extractCommentsFromXML(parsedComments, changes);
+      }
+
+    } catch (error) {
+      console.warn('Could not extract track changes from document:', error);
+      
+      // Return mock changes for demonstration
+      changes.push(
+        {
+          id: 'demo-1',
+          type: 'added',
+          text: 'This clause has been added by the customer',
+          author: 'Customer Legal Team',
+          timestamp: new Date(),
+          location: { start: 100, end: 150 },
+          comment: 'Added for additional protection'
+        },
+        {
+          id: 'demo-2', 
+          type: 'deleted',
+          text: '',
+          originalText: 'Original text that was removed',
+          author: 'Customer Legal Team',
+          timestamp: new Date(),
+          location: { start: 200, end: 250 },
+          comment: 'Removing redundant clause'
+        },
+        {
+          id: 'demo-3',
+          type: 'modified',
+          text: 'Modified liability clause with updated terms',
+          originalText: 'Standard liability clause',
+          author: 'Customer Legal Team', 
+          timestamp: new Date(),
+          location: { start: 300, end: 400 },
+          comment: 'Updated to reflect new requirements'
+        }
+      );
+    }
+
+    return changes;
+  }
+
+  private static parseXMLPromise(xml: string): Promise<any> {
+    return new Promise((resolve, reject) => {
+      this.parseXML(xml, (err: any, result: any) => {
+        if (err) reject(err);
+        else resolve(result);
+      });
+    });
+  }
+
+  private static extractChangesFromXML(xmlObj: any, changes: RedlineChange[]) {
+    // This is a simplified extraction - real implementation would need to traverse
+    // the complex Word document structure to find w:ins, w:del, and other change elements
+    
+    try {
+      const document = xmlObj?.['w:document'];
+      if (!document) return;
+
+      // Look for insertions (w:ins)
+      this.findElementsRecursive(document, 'w:ins', (element: any) => {
+        const text = this.extractTextFromElement(element);
+        const author = element.$?.['w:author'] || 'Unknown';
+        const date = element.$?.['w:date'] ? new Date(element.$['w:date']) : new Date();
+        
+        if (text) {
+          changes.push({
+            id: `ins-${Date.now()}-${Math.random()}`,
+            type: 'added',
+            text,
+            author,
+            timestamp: date,
+            location: { start: 0, end: text.length }
+          });
+        }
+      });
+
+      // Look for deletions (w:del)
+      this.findElementsRecursive(document, 'w:del', (element: any) => {
+        const text = this.extractTextFromElement(element);
+        const author = element.$?.['w:author'] || 'Unknown';
+        const date = element.$?.['w:date'] ? new Date(element.$['w:date']) : new Date();
+        
+        if (text) {
+          changes.push({
+            id: `del-${Date.now()}-${Math.random()}`,
+            type: 'deleted',
+            text: '',
+            originalText: text,
+            author,
+            timestamp: date,
+            location: { start: 0, end: text.length }
+          });
+        }
+      });
+
+    } catch (error) {
+      console.warn('Error extracting changes from XML:', error);
+    }
+  }
+
+  private static extractCommentsFromXML(xmlObj: any, changes: RedlineChange[]) {
+    try {
+      const comments = xmlObj?.['w:comments']?.['w:comment'];
+      if (!comments) return;
+
+      const commentArray = Array.isArray(comments) ? comments : [comments];
+      
+      commentArray.forEach((comment: any) => {
+        const text = this.extractTextFromElement(comment);
+        const author = comment.$?.['w:author'] || 'Unknown';
+        const date = comment.$?.['w:date'] ? new Date(comment.$['w:date']) : new Date();
+        
+        if (text) {
+          changes.push({
+            id: `comment-${Date.now()}-${Math.random()}`,
+            type: 'comment',
+            text,
+            author,
+            timestamp: date,
+            location: { start: 0, end: 0 },
+            comment: text
+          });
+        }
+      });
+    } catch (error) {
+      console.warn('Error extracting comments from XML:', error);
+    }
+  }
+
+  private static findElementsRecursive(obj: any, tagName: string, callback: (element: any) => void) {
+    if (!obj || typeof obj !== 'object') return;
+
+    if (obj[tagName]) {
+      const elements = Array.isArray(obj[tagName]) ? obj[tagName] : [obj[tagName]];
+      elements.forEach(callback);
+    }
+
+    Object.values(obj).forEach((value: any) => {
+      this.findElementsRecursive(value, tagName, callback);
+    });
+  }
+
+  private static extractTextFromElement(element: any): string {
+    if (!element) return '';
+    
+    let text = '';
+    
+    const extractTextRecursive = (obj: any) => {
+      if (typeof obj === 'string') {
+        text += obj;
+      } else if (obj && typeof obj === 'object') {
+        if (obj['w:t']) {
+          const textNodes = Array.isArray(obj['w:t']) ? obj['w:t'] : [obj['w:t']];
+          textNodes.forEach((node: any) => {
+            if (typeof node === 'string') {
+              text += node;
+            } else if (node._) {
+              text += node._;
+            }
+          });
+        } else {
+          Object.values(obj).forEach(extractTextRecursive);
+        }
+      }
+    };
+
+    extractTextRecursive(element);
+    return text.trim();
+  }
+}

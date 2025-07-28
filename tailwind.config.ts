@@ -52,6 +52,27 @@ export default {
 					DEFAULT: 'hsl(var(--card))',
 					foreground: 'hsl(var(--card-foreground))'
 				},
+				redline: {
+					added: 'hsl(var(--redline-added))',
+					'added-foreground': 'hsl(var(--redline-added-foreground))',
+					deleted: 'hsl(var(--redline-deleted))',
+					'deleted-foreground': 'hsl(var(--redline-deleted-foreground))',
+					modified: 'hsl(var(--redline-modified))',
+					'modified-foreground': 'hsl(var(--redline-modified-foreground))',
+					comment: 'hsl(var(--redline-comment))',
+					'comment-foreground': 'hsl(var(--redline-comment-foreground))'
+				},
+				panel: {
+					background: 'hsl(var(--panel-background))',
+					border: 'hsl(var(--panel-border))'
+				},
+				document: {
+					background: 'hsl(var(--document-background))'
+				},
+				highlight: {
+					active: 'hsl(var(--highlight-active))',
+					hover: 'hsl(var(--highlight-hover))'
+				},
 				sidebar: {
 					DEFAULT: 'hsl(var(--sidebar-background))',
 					foreground: 'hsl(var(--sidebar-foreground))',
