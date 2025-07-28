@@ -107,6 +107,29 @@ export const DocumentViewer = ({
     setIsEditing(!isEditing);
   };
 
+  const handleRefresh = () => {
+    // Reset zoom and refresh the document view
+    setZoom(100);
+    setIsEditing(false);
+    // Trigger a re-render by clearing and restoring selection
+    if (window.getSelection) {
+      window.getSelection()?.removeAllRanges();
+    }
+  };
+
+  const handleDownload = () => {
+    // Create a blob with the current document content
+    const blob = new Blob([documentContent], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename.replace(/\.[^/.]+$/, '') + '_edited.txt';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
   return (
     <div className="h-full flex flex-col bg-document-background">
       {/* Header */}
@@ -138,11 +161,11 @@ export const DocumentViewer = ({
               {isEditing ? 'View' : 'Edit'}
             </Button>
             
-            <Button variant="ghost" size="sm">
+            <Button variant="ghost" size="sm" onClick={handleRefresh}>
               <RefreshCw className="h-4 w-4" />
             </Button>
             
-            <Button variant="ghost" size="sm">
+            <Button variant="ghost" size="sm" onClick={handleDownload}>
               <Download className="h-4 w-4" />
             </Button>
           </div>

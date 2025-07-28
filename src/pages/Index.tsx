@@ -46,8 +46,18 @@ const Index = () => {
     setDocumentState(prev => {
       if (!prev) return null;
       
+      // Find the change and update document content with suggestion
+      const change = prev.changes.find(c => c.id === changeId);
+      let updatedContent = prev.documentContent;
+      
+      if (change && change.text) {
+        // Replace the original text with the suggestion in the document
+        updatedContent = prev.documentContent.replace(change.text, suggestion);
+      }
+      
       return {
         ...prev,
+        documentContent: updatedContent,
         changes: prev.changes.map(change => 
           change.id === changeId 
             ? { ...change, suggestions: [...(change.suggestions || []), suggestion] }

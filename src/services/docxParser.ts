@@ -66,41 +66,15 @@ export class DocxParser {
         this.extractCommentsFromXML(parsedComments, changes);
       }
 
+      // If no real changes found, return empty array instead of mock data
+      if (changes.length === 0) {
+        console.info('No track changes found in document. Upload a document with track changes enabled.');
+      }
+
     } catch (error) {
       console.warn('Could not extract track changes from document:', error);
-      
-      // Return mock changes for demonstration
-      changes.push(
-        {
-          id: 'demo-1',
-          type: 'added',
-          text: 'This clause has been added by the customer',
-          author: 'Customer Legal Team',
-          timestamp: new Date(),
-          location: { start: 100, end: 150 },
-          comment: 'Added for additional protection'
-        },
-        {
-          id: 'demo-2', 
-          type: 'deleted',
-          text: '',
-          originalText: 'Original text that was removed',
-          author: 'Customer Legal Team',
-          timestamp: new Date(),
-          location: { start: 200, end: 250 },
-          comment: 'Removing redundant clause'
-        },
-        {
-          id: 'demo-3',
-          type: 'modified',
-          text: 'Modified liability clause with updated terms',
-          originalText: 'Standard liability clause',
-          author: 'Customer Legal Team', 
-          timestamp: new Date(),
-          location: { start: 300, end: 400 },
-          comment: 'Updated to reflect new requirements'
-        }
-      );
+      // Return empty array instead of mock data for real usage
+      return [];
     }
 
     return changes;
