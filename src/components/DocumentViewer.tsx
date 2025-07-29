@@ -193,6 +193,10 @@ export const DocumentViewer = ({
                   className="prose prose-slate max-w-none font-serif text-base leading-relaxed"
                   dangerouslySetInnerHTML={renderDocumentWithChanges(documentContent)}
                   onMouseUp={handleTextSelection}
+                  style={{
+                    fontFamily: 'inherit',
+                    lineHeight: '1.6'
+                  }}
                 />
               )}
             </div>
@@ -204,7 +208,7 @@ export const DocumentViewer = ({
       <div className="p-2 border-t border-panel-border bg-muted/30 text-xs text-muted-foreground">
         <div className="flex items-center justify-between">
           <span>Microsoft Word Compatibility Mode</span>
-          <span>Words: {documentContent.split(/\s+/).length} | Changes: {changes.length}</span>
+          <span>Words: {documentContent.replace(/<[^>]*>/g, ' ').split(/\s+/).filter(word => word.length > 0).length} | Changes: {changes.length}</span>
         </div>
       </div>
     </div>

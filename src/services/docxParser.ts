@@ -10,11 +10,25 @@ export class DocxParser {
     metadata: DocumentMetadata;
   }> {
     try {
-      // Extract text content using mammoth
-      const { value: htmlContent } = await mammoth.convertToHtml({ arrayBuffer: await file.arrayBuffer() });
+      // Extract rich HTML content using mammoth with styling preserved
+      const { value: htmlContent } = await mammoth.convertToHtml(
+        { arrayBuffer: await file.arrayBuffer() },
+        {
+          styleMap: [
+            "p[style-name='Heading 1'] => h1:fresh",
+            "p[style-name='Heading 2'] => h2:fresh", 
+            "p[style-name='Heading 3'] => h3:fresh",
+            "b => strong",
+            "i => em"
+          ]
+        }
+      );
       
-      // Convert HTML to plain text for processing
-      const textContent = htmlContent.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+      // Keep HTML content for rich formatting
+      const textContent = htmlContent;
+      
+      // Also extract plain text for word count
+      const plainText = htmlContent.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
       
       // Extract track changes from the docx file
       const changes = await this.extractTrackChanges(file);
@@ -24,7 +38,7 @@ export class DocxParser {
         filename: file.name,
         uploadedAt: new Date(),
         lastModified: new Date(file.lastModified),
-        wordCount: textContent.split(/\s+/).length,
+        wordCount: plainText.split(/\s+/).length,
         changeCount: changes.length,
         authors: [...new Set(changes.map(c => c.author))]
       };
