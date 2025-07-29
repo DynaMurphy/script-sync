@@ -1,10 +1,8 @@
 import mammoth from 'mammoth';
 import JSZip from 'jszip';
-import xml2js from 'xml2js';
 import { RedlineChange, DocumentMetadata } from '@/types/redline';
 
 export class DocxParser {
-  private static parseXML = xml2js.parseString;
 
   static async parseDocument(file: File): Promise<{
     content: string;
@@ -53,17 +51,18 @@ export class DocxParser {
       const documentXml = await docxContents.file('word/document.xml')?.async('text');
       if (!documentXml) throw new Error('Could not find document.xml');
 
-      // Parse the XML to extract track changes
-      const parsedXml = await this.parseXMLPromise(documentXml);
+      // Parse the XML using browser's native DOMParser
+      const parser = new DOMParser();
+      const xmlDoc = parser.parseFromString(documentXml, 'text/xml');
       
       // Extract changes from the parsed XML
-      this.extractChangesFromXML(parsedXml, changes);
+      this.extractChangesFromXML(xmlDoc, changes);
       
       // Also check for comments
       const commentsXml = await docxContents.file('word/comments.xml')?.async('text');
       if (commentsXml) {
-        const parsedComments = await this.parseXMLPromise(commentsXml);
-        this.extractCommentsFromXML(parsedComments, changes);
+        const commentsDoc = parser.parseFromString(commentsXml, 'text/xml');
+        this.extractCommentsFromXML(commentsDoc, changes);
       }
 
       // If no real changes found, return empty array instead of mock data
@@ -91,33 +90,6 @@ export class DocxParser {
     return changes;
   }
 
-  private static parseXMLPromise = (xml: string): Promise<any> => {
-    return new Promise((resolve, reject) => {
-      try {
-        // Create parser with browser-compatible options
-        const parser = new xml2js.Parser({ 
-          explicitArray: false,
-          ignoreAttrs: false,
-          mergeAttrs: true,
-          normalize: true,
-          normalizeTags: true,
-          explicitRoot: false
-        });
-        
-        parser.parseString(xml, (err: any, result: any) => {
-          if (err) {
-            console.error('XML parsing error:', err);
-            reject(err);
-          } else {
-            resolve(result);
-          }
-        });
-      } catch (error) {
-        console.error('Parser creation error:', error);
-        reject(error);
-      }
-    });
-  };
 
   // Helper method to get text content from file
   private static async getTextContent(file: File): Promise<string> {
@@ -186,25 +158,21 @@ export class DocxParser {
     return changes;
   }
 
-  private static extractChangesFromXML(xmlObj: any, changes: RedlineChange[]) {
-    // This is a simplified extraction - real implementation would need to traverse
-    // the complex Word document structure to find w:ins, w:del, and other change elements
-    
+  private static extractChangesFromXML(xmlDoc: Document, changes: RedlineChange[]) {
     try {
-      const document = xmlObj?.['w:document'];
-      if (!document) return;
-
-      // Look for insertions (w:ins)
-      this.findElementsRecursive(document, 'w:ins', (element: any) => {
+      // Look for insertions (w:ins elements)
+      const insertions = xmlDoc.querySelectorAll('ins, w\\:ins');
+      insertions.forEach((element, index) => {
         const text = this.extractTextFromElement(element);
-        const author = element.$?.['w:author'] || 'Unknown';
-        const date = element.$?.['w:date'] ? new Date(element.$['w:date']) : new Date();
+        const author = element.getAttribute('w:author') || element.getAttribute('author') || 'Unknown';
+        const dateStr = element.getAttribute('w:date') || element.getAttribute('date');
+        const date = dateStr ? new Date(dateStr) : new Date();
         
-        if (text) {
+        if (text.trim()) {
           changes.push({
-            id: `ins-${Date.now()}-${Math.random()}`,
+            id: `ins-${Date.now()}-${index}`,
             type: 'added',
-            text,
+            text: text.trim(),
             author,
             timestamp: date,
             location: { start: 0, end: text.length }
@@ -212,51 +180,77 @@ export class DocxParser {
         }
       });
 
-      // Look for deletions (w:del)
-      this.findElementsRecursive(document, 'w:del', (element: any) => {
+      // Look for deletions (w:del elements)
+      const deletions = xmlDoc.querySelectorAll('del, w\\:del');
+      deletions.forEach((element, index) => {
         const text = this.extractTextFromElement(element);
-        const author = element.$?.['w:author'] || 'Unknown';
-        const date = element.$?.['w:date'] ? new Date(element.$['w:date']) : new Date();
+        const author = element.getAttribute('w:author') || element.getAttribute('author') || 'Unknown';
+        const dateStr = element.getAttribute('w:date') || element.getAttribute('date');
+        const date = dateStr ? new Date(dateStr) : new Date();
         
-        if (text) {
+        if (text.trim()) {
           changes.push({
-            id: `del-${Date.now()}-${Math.random()}`,
+            id: `del-${Date.now()}-${index}`,
             type: 'deleted',
             text: '',
-            originalText: text,
+            originalText: text.trim(),
             author,
             timestamp: date,
             location: { start: 0, end: text.length }
           });
         }
       });
+
+      // Also look for elements with specific Word namespace prefixes
+      const allElements = xmlDoc.querySelectorAll('*');
+      allElements.forEach((element, index) => {
+        if (element.tagName.includes(':ins') || element.tagName.includes(':del')) {
+          const text = this.extractTextFromElement(element);
+          const author = element.getAttribute('w:author') || 'Unknown';
+          const dateStr = element.getAttribute('w:date');
+          const date = dateStr ? new Date(dateStr) : new Date();
+          
+          if (text.trim()) {
+            const isInsertion = element.tagName.includes(':ins');
+            changes.push({
+              id: `${isInsertion ? 'ins' : 'del'}-${Date.now()}-${index}`,
+              type: isInsertion ? 'added' : 'deleted',
+              text: isInsertion ? text.trim() : '',
+              originalText: isInsertion ? undefined : text.trim(),
+              author,
+              timestamp: date,
+              location: { start: 0, end: text.length }
+            });
+          }
+        }
+      });
+
+      console.log(`Found ${changes.length} track changes in document`);
 
     } catch (error) {
       console.warn('Error extracting changes from XML:', error);
     }
   }
 
-  private static extractCommentsFromXML(xmlObj: any, changes: RedlineChange[]) {
+  private static extractCommentsFromXML(xmlDoc: Document, changes: RedlineChange[]) {
     try {
-      const comments = xmlObj?.['w:comments']?.['w:comment'];
-      if (!comments) return;
-
-      const commentArray = Array.isArray(comments) ? comments : [comments];
+      const comments = xmlDoc.querySelectorAll('comment, w\\:comment');
       
-      commentArray.forEach((comment: any) => {
+      comments.forEach((comment, index) => {
         const text = this.extractTextFromElement(comment);
-        const author = comment.$?.['w:author'] || 'Unknown';
-        const date = comment.$?.['w:date'] ? new Date(comment.$['w:date']) : new Date();
+        const author = comment.getAttribute('w:author') || comment.getAttribute('author') || 'Unknown';
+        const dateStr = comment.getAttribute('w:date') || comment.getAttribute('date');
+        const date = dateStr ? new Date(dateStr) : new Date();
         
-        if (text) {
+        if (text.trim()) {
           changes.push({
-            id: `comment-${Date.now()}-${Math.random()}`,
+            id: `comment-${Date.now()}-${index}`,
             type: 'comment',
-            text,
+            text: text.trim(),
             author,
             timestamp: date,
             location: { start: 0, end: 0 },
-            comment: text
+            comment: text.trim()
           });
         }
       });
@@ -265,44 +259,22 @@ export class DocxParser {
     }
   }
 
-  private static findElementsRecursive(obj: any, tagName: string, callback: (element: any) => void) {
-    if (!obj || typeof obj !== 'object') return;
 
-    if (obj[tagName]) {
-      const elements = Array.isArray(obj[tagName]) ? obj[tagName] : [obj[tagName]];
-      elements.forEach(callback);
-    }
-
-    Object.values(obj).forEach((value: any) => {
-      this.findElementsRecursive(value, tagName, callback);
-    });
-  }
-
-  private static extractTextFromElement(element: any): string {
+  private static extractTextFromElement(element: Element): string {
     if (!element) return '';
     
-    let text = '';
+    // Get all text content, including from nested elements
+    let text = element.textContent || '';
     
-    const extractTextRecursive = (obj: any) => {
-      if (typeof obj === 'string') {
-        text += obj;
-      } else if (obj && typeof obj === 'object') {
-        if (obj['w:t']) {
-          const textNodes = Array.isArray(obj['w:t']) ? obj['w:t'] : [obj['w:t']];
-          textNodes.forEach((node: any) => {
-            if (typeof node === 'string') {
-              text += node;
-            } else if (node._) {
-              text += node._;
-            }
-          });
-        } else {
-          Object.values(obj).forEach(extractTextRecursive);
-        }
+    // Also check for w:t elements (Word text elements)
+    const textElements = element.querySelectorAll('t, w\\:t, delText, w\\:delText');
+    textElements.forEach(textEl => {
+      const elementText = textEl.textContent || '';
+      if (elementText && !text.includes(elementText)) {
+        text += ' ' + elementText;
       }
-    };
+    });
 
-    extractTextRecursive(element);
     return text.trim();
   }
 }
